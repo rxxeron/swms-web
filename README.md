@@ -2,6 +2,12 @@
 
 A comprehensive full-stack web application for managing student mental health and wellness, built with React (frontend) and Node.js/Express (backend) with PostgreSQL database.
 
+## 🌐 Live Deployment
+- **Frontend**: Deployed on Vercel (In Progress)
+- **Database**: PostgreSQL hosted on Railway
+- **Repository**: https://github.com/rxxeron/swms-web
+- **Status**: Currently resolving build issues for production deployment
+
 ## 🚀 Features
 
 ### 👑 Admin Features
@@ -253,6 +259,35 @@ npm test
 
 ## 🚀 Deployment
 
+### Cloud Deployment (Current Setup)
+
+**Database**: PostgreSQL on Railway
+- Railway provides managed PostgreSQL hosting
+- Environment variables configured for production
+- Database schema and seed data ready for deployment
+
+**Frontend**: Vercel Deployment (In Progress)
+- Automatic deployments from GitHub repository
+- Environment variables configured
+- Currently resolving build compilation issues
+
+**Environment Variables for Production**:
+```env
+# Database (Railway PostgreSQL)
+DATABASE_URL=postgresql://username:password@host:port/database
+
+# JWT Configuration
+JWT_SECRET=production_jwt_secret_key
+JWT_EXPIRES_IN=24h
+
+# API Configuration
+REACT_APP_API_BASE_URL=https://your-backend-url.vercel.app/api
+```
+
+### Local Development Deployment
+
+### Local Development Deployment
+
 ### Backend Deployment
 1. Set production environment variables
 2. Update CORS_ORIGIN to your frontend domain
@@ -268,6 +303,27 @@ npm test
    npm run build
    ```
 2. Serve the `build` folder using a web server (nginx, Apache, etc.)
+
+## 📋 Deployment Progress
+
+### Completed:
+- ✅ Full application development (52 files, 38,989+ lines of code)
+- ✅ Git repository setup and pushed to GitHub
+- ✅ Railway PostgreSQL database configuration
+- ✅ Environment variables setup
+- ✅ Vercel project configuration
+- ✅ Package.json dependencies resolved
+
+### In Progress:
+- 🔄 Vercel build compilation (resolving missing Register component)
+- 🔄 Database schema deployment to Railway
+- 🔄 Production environment testing
+
+### Next Steps:
+- Create missing React components for successful build
+- Complete Vercel deployment
+- Set up database schema on Railway
+- Production testing and validation
 
 ## 🔧 Troubleshooting
 
