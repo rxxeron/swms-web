@@ -18,6 +18,16 @@
       "dest": "frontend/build/index.html"
     }
   ],
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "backend/server.js"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "frontend/build/index.html"
+    }
+  ],
   "env": {
     "NODE_ENV": "production"
   }
