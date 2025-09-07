@@ -6,7 +6,15 @@ A comprehensive full-stack web application for managing student mental health an
 - **Frontend**: Deployed on Vercel (In Progress)
 - **Database**: PostgreSQL hosted on Railway
 - **Repository**: https://github.com/rxxeron/swms-web
-- **Status**: Currently resolving build issues for production deployment
+- **Status**: ✅ **Major Update - Faculty Dashboard Complete with Test Data**
+
+## 🆕 Latest Updates (September 2025)
+- ✅ **Complete Faculty Dashboard Implementation**
+- ✅ **Fixed all backend API endpoints for faculty functionality**
+- ✅ **Comprehensive CSE 103-29 test data with 5 students**
+- ✅ **Enhanced authentication and authorization**
+- ✅ **Real-world testing scenarios with diverse student performance**
+- ✅ **Recommendation system for at-risk students**
 
 ## 🚀 Features
 
@@ -26,11 +34,15 @@ A comprehensive full-stack web application for managing student mental health an
 - Book appointments with consultants
 - Accept/decline consultant-scheduled appointments with counter-proposals
 
-### 👨‍🏫 Faculty Features
+### 👨‍🏫 Faculty Features ✅ **Recently Enhanced**
 - Login system for course instructors
-- View average mood levels for assigned course sections
-- Identify vulnerable students (7-day average mood < 4)
-- Recommend students for consultation
+- **Complete faculty dashboard** with tabbed interface
+- View all students in assigned courses with mood trends
+- **Real-time student performance monitoring**
+- Identify at-risk students with low mood patterns
+- **Comprehensive course analytics** and wellness metrics
+- Create recommendations for students needing support
+- **Enhanced student management** with mood history visualization
 - Recommendation cooldown system (1 week after appointment)
 
 ### 👩‍⚕️ Consultant Features
@@ -183,21 +195,34 @@ Before you begin, ensure you have the following installed:
 
    The frontend will start on `http://localhost:3000`
 
-## 🔐 Default Credentials
+## 🔐 Default Credentials & Test Data
 
-### Admin Access
+### 👑 Admin Access
 - **Username**: `admin_swms`
 - **Password**: `swmsewu2025`
 
-### Demo Student Account
+### 🎓 Demo Student Account
 - **Username**: `alice_johnson`
 - **Password**: `password123`
 
-### Demo Faculty Account
+### 👨‍🏫 Demo Faculty Account (Original)
 - **Username**: `john_smith`
 - **Password**: `password123`
 
-### Demo Consultant Account
+### 👨‍🏫 **NEW: CSE 103-29 Faculty Account (Complete Test Data)**
+- **Username**: `sarah_thompson`
+- **Password**: `swmsewu2025`
+- **Course**: Computer Science and Engineering (CSE103-29)
+- **Students**: 5 students with diverse performance patterns
+
+#### CSE 103-29 Test Students:
+1. **Mike Chen (STU006)** - High performer (mood: 6-9)
+2. **Sarah Martinez (STU007)** - Average performer (mood: 4-8)
+3. **James Wilson (STU008)** - ⚠️ **At-risk student** (mood: 2-4, has recommendations)
+4. **Emily Rodriguez (STU009)** - Good performer (mood: 5-8)
+5. **Alex Kim (STU010)** - Excellent performer (mood: 7-9)
+
+### 👩‍⚕️ Demo Consultant Account
 - **Username**: `sarah_johnson`
 - **Password**: `password123`
 

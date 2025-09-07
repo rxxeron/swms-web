@@ -26,6 +26,9 @@ import FacultyDashboard from './pages/faculty/FacultyDashboard';
 // Consultant pages
 import ConsultantDashboard from './pages/consultant/ConsultantDashboard';
 
+// Common pages
+import ProfileSettings from './pages/common/ProfileSettings';
+
 // Protected route component
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { isAuthenticated, user, isLoading } = useAuth();
@@ -110,6 +113,13 @@ function App() {
 
           {/* Root redirect */}
           <Route path="/" element={<RoleBasedRedirect />} />
+
+          {/* Common protected routes */}
+          <Route path="/profile" element={
+            <ProtectedRoute allowedRoles={['admin', 'student', 'faculty', 'consultant']}>
+              <ProfileSettings />
+            </ProtectedRoute>
+          } />
 
           {/* Admin routes */}
           <Route path="/admin/dashboard" element={

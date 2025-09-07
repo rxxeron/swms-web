@@ -93,6 +93,21 @@ const schemas = {
     password: Joi.string().min(8).max(128).required()
   }),
 
+  // Course management schemas
+  courseAdd: Joi.object({
+    title: Joi.string().min(2).max(255).required().trim(),
+    section: Joi.string().min(1).max(50).required().trim(),
+    faculty_id: Joi.string().uuid().optional().allow(null, ''),
+    description: Joi.string().max(1000).optional().allow('').trim()
+  }),
+
+  courseUpdate: Joi.object({
+    title: Joi.string().min(2).max(255).required().trim(),
+    section: Joi.string().min(1).max(50).required().trim(),
+    faculty_id: Joi.string().uuid().optional().allow(null, ''),
+    description: Joi.string().max(1000).optional().allow('').trim()
+  }),
+
   // Mood entry schema
   moodEntry: Joi.object({
     mood_level: Joi.number().integer().min(1).max(10).required(),
@@ -131,6 +146,24 @@ const schemas = {
     student_notes: Joi.string().max(500).allow('').optional().trim()
   }),
 
+  // Admin appointment creation schema
+  appointmentCreateAdmin: Joi.object({
+    student_id: Joi.string().uuid().required(),
+    consultant_id: Joi.string().uuid().required(),
+    appointment_date: Joi.date().required(),
+    appointment_time: Joi.string().pattern(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).required(),
+    student_notes: Joi.string().max(1000).allow('', null).optional(),
+    requested_by: Joi.string().valid('admin', 'student', 'consultant').default('admin')
+  }),
+
+  // Admin appointment status update schema
+  appointmentStatusUpdate: Joi.object({
+    status: Joi.string().valid('pending', 'confirmed', 'completed', 'cancelled', 'rejected').required(),
+    consultant_notes: Joi.string().max(1000).allow('', null).optional(),
+    counter_proposal_date: Joi.date().allow(null).optional(),
+    counter_proposal_time: Joi.string().pattern(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).allow(null).optional()
+  }),
+
   // Course schema
   course: Joi.object({
     title: Joi.string().min(2).max(255).required().trim(),
@@ -141,10 +174,11 @@ const schemas = {
   // Query parameters for pagination
   pagination: Joi.object({
     page: Joi.number().integer().min(1).default(1),
-    limit: Joi.number().integer().min(1).max(100).default(10),
+    limit: Joi.number().integer().min(1).max(1000).default(10),
     sort_by: Joi.string().optional(),
     sort_order: Joi.string().valid('asc', 'desc').default('asc'),
-    search: Joi.string().max(255).optional().trim()
+    search: Joi.string().max(255).optional().trim(),
+    role: Joi.string().valid('student', 'faculty', 'consultant', 'admin').optional()
   }),
 
   // Date range query
@@ -165,10 +199,14 @@ const validateRegistration = validate(schemas.userRegistration);
 const validateLogin = validate(schemas.userLogin);
 const validateFacultyAdd = validate(schemas.facultyAdd);
 const validateConsultantAdd = validate(schemas.consultantAdd);
+const validateCourseAdd = validate(schemas.courseAdd);
+const validateCourseUpdate = validate(schemas.courseUpdate);
 const validateMoodEntry = validate(schemas.moodEntry);
 const validateRecommendation = validate(schemas.recommendation);
 const validateAppointmentCreate = validate(schemas.appointmentCreate);
 const validateAppointmentResponse = validate(schemas.appointmentResponse);
+const validateAppointmentCreateAdmin = validate(schemas.appointmentCreateAdmin);
+const validateAppointmentStatusUpdate = validate(schemas.appointmentStatusUpdate);
 const validateCourse = validate(schemas.course);
 const validatePagination = validate(schemas.pagination, 'query');
 const validateDateRange = validate(schemas.dateRange, 'query');
@@ -213,10 +251,14 @@ module.exports = {
   validateLogin,
   validateFacultyAdd,
   validateConsultantAdd,
+  validateCourseAdd,
+  validateCourseUpdate,
   validateMoodEntry,
   validateRecommendation,
   validateAppointmentCreate,
   validateAppointmentResponse,
+  validateAppointmentCreateAdmin,
+  validateAppointmentStatusUpdate,
   validateCourse,
   validatePagination,
   validateDateRange,

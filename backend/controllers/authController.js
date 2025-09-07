@@ -10,11 +10,12 @@ const login = async (req, res) => {
   try {
     const { identifier, password } = req.body;
 
-    // Find user by username or email
+    // Find user by username or email (including deactivated/deleted users for proper error messages)
     const userResult = await query(
-      `SELECT id, name, username, email, password_hash, role, student_id, is_active 
+      `SELECT id, name, username, email, password_hash, role, student_id, is_active, 
+              deactivated_until, deactivation_reason, is_deleted, deleted_at, deletion_reason
        FROM users 
-       WHERE (username = $1 OR email = $1) AND is_active = true`,
+       WHERE (username = $1 OR email = $1)`,
       [identifier.toLowerCase()]
     );
 
@@ -26,6 +27,49 @@ const login = async (req, res) => {
     }
 
     const user = userResult.rows[0];
+
+    // Check if user is permanently deleted
+    if (user.is_deleted) {
+      return res.status(403).json({
+        success: false,
+        message: 'Account has been dismissed. Please contact administration.',
+        reason: 'dismissed'
+      });
+    }
+
+    // Check if user is temporarily deactivated
+    if (!user.is_active && user.deactivated_until) {
+      const deactivatedUntil = new Date(user.deactivated_until);
+      const now = new Date();
+      
+      if (deactivatedUntil > now) {
+        return res.status(403).json({
+          success: false,
+          message: `Account is temporarily blocked until ${deactivatedUntil.toLocaleString()}. Reason: ${user.deactivation_reason || 'No reason provided'}`,
+          reason: 'temporarily_blocked',
+          blockedUntil: user.deactivated_until,
+          blockReason: user.deactivation_reason
+        });
+      } else {
+        // Deactivation period has expired, automatically reactivate
+        await query(
+          `UPDATE users 
+           SET is_active = true, deactivated_until = NULL, deactivation_reason = NULL 
+           WHERE id = $1`,
+          [user.id]
+        );
+        user.is_active = true;
+      }
+    }
+
+    // Check if user is permanently deactivated (without deactivated_until)
+    if (!user.is_active) {
+      return res.status(403).json({
+        success: false,
+        message: 'Account has been deactivated. Please contact administration.',
+        reason: 'deactivated'
+      });
+    }
 
     // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
@@ -45,7 +89,7 @@ const login = async (req, res) => {
     });
 
     // Remove sensitive data
-    const { password_hash, ...userInfo } = user;
+    const { password_hash, deactivated_until, deactivation_reason, is_deleted, deleted_at, deletion_reason, ...userInfo } = user;
 
     res.json({
       success: true,

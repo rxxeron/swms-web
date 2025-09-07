@@ -10,15 +10,21 @@ const getAllUsers = async (req, res) => {
     const { page = 1, limit = 10, role, search, sort_by = 'created_at', sort_order = 'desc' } = req.query;
     const offset = (page - 1) * limit;
 
-    // Build WHERE clause
-    let whereConditions = ['u.is_active = true'];
+    // Debug logging
+    console.log('getAllUsers called with params:', { page, limit, role, search, sort_by, sort_order });
+
+    // Build WHERE clause - show all users (active and inactive)
+    let whereConditions = [];
     let queryParams = [];
     let paramCount = 0;
 
-    if (role && ['student', 'faculty', 'consultant'].includes(role)) {
+    if (role && ['student', 'faculty', 'consultant', 'admin'].includes(role)) {
       paramCount++;
       whereConditions.push(`u.role = $${paramCount}`);
       queryParams.push(role);
+      console.log('Role filter applied:', role);
+    } else if (role) {
+      console.log('Invalid role provided:', role);
     }
 
     if (search) {
@@ -56,7 +62,7 @@ const getAllUsers = async (req, res) => {
 
     const usersQuery = `
       SELECT 
-        u.id, u.name, u.username, u.email, u.role, u.student_id, u.created_at,
+        u.id, u.name, u.username, u.email, u.role, u.student_id, u.created_at, u.is_active, u.deactivated_until,
         CASE 
           WHEN u.role = 'student' THEN (
             SELECT COUNT(*) FROM student_courses sc WHERE sc.student_id = u.id
@@ -358,11 +364,109 @@ const addConsultant = async (req, res) => {
 };
 
 /**
- * Delete user
+ * Update user status (deactivate, reactivate, temporary deactivate)
+ */
+const updateUserStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { action, deactivate_until } = req.body;
+
+    // Check if user exists and is not admin
+    const userResult = await query(
+      'SELECT id, role, name, is_active FROM users WHERE id = $1',
+      [id]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    const user = userResult.rows[0];
+
+    if (user.role === 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Cannot modify admin user status'
+      });
+    }
+
+    let updateQuery = '';
+    let queryParams = [id];
+    let message = '';
+
+    switch (action) {
+      case 'temporary':
+        if (!deactivate_until) {
+          return res.status(400).json({
+            success: false,
+            message: 'Deactivation end date is required for temporary deactivation'
+          });
+        }
+        updateQuery = `
+          UPDATE users 
+          SET is_active = false, 
+              deactivated_until = $2, 
+              updated_at = CURRENT_TIMESTAMP 
+          WHERE id = $1
+        `;
+        queryParams.push(deactivate_until);
+        message = `User ${user.name} temporarily deactivated until ${new Date(deactivate_until).toLocaleString()}`;
+        break;
+
+      case 'permanent':
+        updateQuery = `
+          UPDATE users 
+          SET is_active = false, 
+              deactivated_until = NULL, 
+              updated_at = CURRENT_TIMESTAMP 
+          WHERE id = $1
+        `;
+        message = `User ${user.name} permanently deactivated`;
+        break;
+
+      case 'reactivate':
+        updateQuery = `
+          UPDATE users 
+          SET is_active = true, 
+              deactivated_until = NULL, 
+              updated_at = CURRENT_TIMESTAMP 
+          WHERE id = $1
+        `;
+        message = `User ${user.name} reactivated successfully`;
+        break;
+
+      default:
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid action. Use: temporary, permanent, or reactivate'
+        });
+    }
+
+    await query(updateQuery, queryParams);
+
+    res.json({
+      success: true,
+      message
+    });
+  } catch (error) {
+    console.error('Update user status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update user status'
+    });
+  }
+};
+
+/**
+ * Delete user (soft delete or permanent delete)
  */
 const deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
+    const { permanent } = req.query; // Check if permanent deletion is requested
 
     // Check if user exists and is not admin
     const userResult = await query(
@@ -386,16 +490,35 @@ const deleteUser = async (req, res) => {
       });
     }
 
-    // Soft delete user (set is_active to false)
-    await query(
-      'UPDATE users SET is_active = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1',
-      [id]
-    );
+    if (permanent === 'true') {
+      // Permanent deletion - remove from database
+      await transaction(async (client) => {
+        // Delete related data first (appointments, enrollments, etc.)
+        await client.query('DELETE FROM appointments WHERE student_id = $1 OR consultant_id = $1', [id]);
+        await client.query('DELETE FROM course_enrollments WHERE student_id = $1', [id]);
+        await client.query('DELETE FROM mood_entries WHERE student_id = $1', [id]);
+        await client.query('DELETE FROM recommendations WHERE student_id = $1 OR consultant_id = $1', [id]);
+        
+        // Finally delete the user
+        await client.query('DELETE FROM users WHERE id = $1', [id]);
+      });
 
-    res.json({
-      success: true,
-      message: `User ${user.name} deleted successfully`
-    });
+      res.json({
+        success: true,
+        message: `User ${user.name} permanently deleted from the system`
+      });
+    } else {
+      // Soft delete user (set is_active to false)
+      await query(
+        'UPDATE users SET is_active = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1',
+        [id]
+      );
+
+      res.json({
+        success: true,
+        message: `User ${user.name} deactivated successfully`
+      });
+    }
   } catch (error) {
     console.error('Delete user error:', error);
     res.status(500).json({
@@ -459,11 +582,356 @@ const getUserStats = async (req, res) => {
   }
 };
 
+/**
+ * Get all courses with faculty and enrollment information
+ */
+const getAllCourses = async (req, res) => {
+  try {
+    const coursesResult = await query(`
+      SELECT 
+        c.id,
+        c.title,
+        c.section,
+        c.created_at,
+        f.name as faculty_name,
+        f.id as faculty_id,
+        COUNT(sc.student_id) as enrolled_students
+      FROM courses c
+      LEFT JOIN users f ON c.faculty_id = f.id
+      LEFT JOIN student_courses sc ON c.id = sc.course_id
+      GROUP BY c.id, c.title, c.section, c.created_at, f.name, f.id
+      ORDER BY c.title, c.section
+    `);
+
+    res.json({
+      success: true,
+      data: {
+        courses: coursesResult.rows,
+        total: coursesResult.rows.length
+      }
+    });
+  } catch (error) {
+    console.error('Get courses error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get courses'
+    });
+  }
+};
+
+/**
+ * Create a new course
+ */
+const createCourse = async (req, res) => {
+  try {
+    const { title, section, faculty_id, description } = req.body;
+
+    // Check if course with same title and section already exists
+    const existingCourse = await query(
+      'SELECT id FROM courses WHERE title = $1 AND section = $2',
+      [title, section]
+    );
+
+    if (existingCourse.rows.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: 'Course with this title and section already exists'
+      });
+    }
+
+    // Validate faculty if provided
+    if (faculty_id) {
+      const facultyResult = await query(
+        'SELECT id FROM users WHERE id = $1 AND role = $2 AND is_active = true',
+        [faculty_id, 'faculty']
+      );
+
+      if (facultyResult.rows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid faculty member selected'
+        });
+      }
+    }
+
+    // Create course
+    const courseResult = await query(
+      'INSERT INTO courses (title, section, faculty_id) VALUES ($1, $2, $3) RETURNING *',
+      [title, section, faculty_id || null]
+    );
+
+    res.status(201).json({
+      success: true,
+      message: 'Course created successfully',
+      data: { course: courseResult.rows[0] }
+    });
+  } catch (error) {
+    console.error('Create course error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create course'
+    });
+  }
+};
+
+/**
+ * Update a course
+ */
+const updateCourse = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, section, faculty_id, description } = req.body;
+
+    // Check if course exists
+    const courseResult = await query('SELECT id FROM courses WHERE id = $1', [id]);
+    if (courseResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Course not found'
+      });
+    }
+
+    // Check if another course with same title and section exists (excluding current course)
+    const existingCourse = await query(
+      'SELECT id FROM courses WHERE title = $1 AND section = $2 AND id != $3',
+      [title, section, id]
+    );
+
+    if (existingCourse.rows.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: 'Another course with this title and section already exists'
+      });
+    }
+
+    // Validate faculty if provided
+    if (faculty_id) {
+      const facultyResult = await query(
+        'SELECT id FROM users WHERE id = $1 AND role = $2 AND is_active = true',
+        [faculty_id, 'faculty']
+      );
+
+      if (facultyResult.rows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid faculty member selected'
+        });
+      }
+    }
+
+    // Update course
+    const updatedCourse = await query(
+      'UPDATE courses SET title = $1, section = $2, faculty_id = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4 RETURNING *',
+      [title, section, faculty_id || null, id]
+    );
+
+    res.json({
+      success: true,
+      message: 'Course updated successfully',
+      data: { course: updatedCourse.rows[0] }
+    });
+  } catch (error) {
+    console.error('Update course error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update course'
+    });
+  }
+};
+
+/**
+ * Delete a course
+ */
+const deleteCourse = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check if course exists
+    const courseResult = await query('SELECT title, section FROM courses WHERE id = $1', [id]);
+    if (courseResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Course not found'
+      });
+    }
+
+    const course = courseResult.rows[0];
+
+    // Delete course (this will cascade delete student enrollments)
+    await query('DELETE FROM courses WHERE id = $1', [id]);
+
+    res.json({
+      success: true,
+      message: `Course "${course.title} - ${course.section}" deleted successfully`
+    });
+  } catch (error) {
+    console.error('Delete course error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete course'
+    });
+  }
+};
+
+/**
+ * Get students enrolled in a course
+ */
+const getCourseStudents = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check if course exists
+    const courseResult = await query('SELECT title, section FROM courses WHERE id = $1', [id]);
+    if (courseResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Course not found'
+      });
+    }
+
+    // Get enrolled students
+    const studentsResult = await query(`
+      SELECT 
+        u.id,
+        u.name,
+        u.username,
+        u.email,
+        u.student_id,
+        sc.enrolled_at
+      FROM users u
+      JOIN student_courses sc ON u.id = sc.student_id
+      WHERE sc.course_id = $1 AND u.is_active = true
+      ORDER BY u.name
+    `, [id]);
+
+    res.json({
+      success: true,
+      data: {
+        course: courseResult.rows[0],
+        students: studentsResult.rows
+      }
+    });
+  } catch (error) {
+    console.error('Get course students error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get course students'
+    });
+  }
+};
+
+/**
+ * Get students for faculty dashboard
+ */
+const getFacultyStudents = async (req, res) => {
+  try {
+    const facultyId = req.user.id;
+
+    const studentsResult = await query(`
+      SELECT DISTINCT
+        u.id,
+        u.name,
+        u.email,
+        u.student_id,
+        c.title as course_name,
+        c.section,
+        me.recent_mood,
+        me.last_mood_entry,
+        CASE 
+          WHEN me.mood_trend > 0 THEN 'improving'
+          WHEN me.mood_trend < 0 THEN 'declining'
+          ELSE 'stable'
+        END as mood_trend
+      FROM users u
+      JOIN student_courses sc ON u.id = sc.student_id
+      JOIN courses c ON sc.course_id = c.id
+      LEFT JOIN (
+        SELECT 
+          student_id,
+          AVG(mood_level) as recent_mood,
+          MAX(entry_date) as last_mood_entry,
+          CASE 
+            WHEN COUNT(*) >= 3 THEN 
+              (SELECT AVG(mood_level) FROM mood_entries me2 
+               WHERE me2.student_id = me1.student_id 
+               AND me2.entry_date >= CURRENT_DATE - INTERVAL '7 days') -
+              (SELECT AVG(mood_level) FROM mood_entries me3 
+               WHERE me3.student_id = me1.student_id 
+               AND me3.entry_date >= CURRENT_DATE - INTERVAL '14 days'
+               AND me3.entry_date < CURRENT_DATE - INTERVAL '7 days')
+            ELSE 0
+          END as mood_trend
+        FROM mood_entries me1
+        WHERE me1.entry_date >= CURRENT_DATE - INTERVAL '30 days'
+        GROUP BY student_id
+      ) me ON u.id = me.student_id
+      WHERE c.faculty_id = $1 AND u.is_active = true
+      ORDER BY u.name
+    `, [facultyId]);
+
+    res.json({
+      success: true,
+      data: studentsResult.rows
+    });
+  } catch (error) {
+    console.error('Get faculty students error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get faculty students'
+    });
+  }
+};
+
+/**
+ * Get courses for faculty dashboard
+ */
+const getFacultyCourses = async (req, res) => {
+  try {
+    const facultyId = req.user.id;
+
+    const coursesResult = await query(`
+      SELECT 
+        c.id,
+        c.title,
+        c.section,
+        COUNT(sc.student_id) as enrolled_count,
+        AVG(me.mood_level) as avg_mood,
+        COUNT(CASE WHEN me.mood_level < 4 THEN 1 END) as low_mood_students
+      FROM courses c
+      LEFT JOIN student_courses sc ON c.id = sc.course_id
+      LEFT JOIN mood_entries me ON sc.student_id = me.student_id 
+        AND me.entry_date >= CURRENT_DATE - INTERVAL '7 days'
+      WHERE c.faculty_id = $1
+      GROUP BY c.id, c.title, c.section
+      ORDER BY c.title, c.section
+    `, [facultyId]);
+
+    res.json({
+      success: true,
+      data: coursesResult.rows
+    });
+  } catch (error) {
+    console.error('Get faculty courses error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get faculty courses'
+    });
+  }
+};
+
 module.exports = {
   getAllUsers,
   getUserById,
   addFaculty,
   addConsultant,
+  updateUserStatus,
   deleteUser,
-  getUserStats
+  getUserStats,
+  getAllCourses,
+  createCourse,
+  updateCourse,
+  deleteCourse,
+  getCourseStudents,
+  getFacultyStudents,
+  getFacultyCourses
 };

@@ -1,0 +1,16 @@
+-- Login credentials for testing CSE 103-29:
+-- Username: sarah_thompson
+-- Password: swmsewu2025 (same as other faculty)
+-- 
+-- This faculty member teaches:
+-- - Computer Science and Engineering (CSE103-29)
+-- 
+-- Students in CSE 103-29:
+-- - Mike Chen (STU006) - High performer (mood: 6-9)
+-- - Sarah Martinez (STU007) - Average performer (mood: 4-8) 
+-- - James Wilson (STU008) - Struggling student (mood: 2-4) ⚠️
+-- - Emily Rodriguez (STU009) - Good performer (mood: 5-8)
+-- - Alex Kim (STU010) - Excellent performer (mood: 7-9)
+-- 
+-- Recommendations created:
+-- - James Wilson: Faculty recommendation for academic stress and study strategies

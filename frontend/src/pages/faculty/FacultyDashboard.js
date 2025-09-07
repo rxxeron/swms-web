@@ -31,6 +31,9 @@ const FacultyDashboard = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
+      console.log('Faculty Dashboard: Fetching data with token:', token ? 'Token exists' : 'No token');
+      console.log('User role:', user?.role);
+      
       const [studentsRes, recommendationsRes, coursesRes, moodRes] = await Promise.all([
         axios.get('/api/faculty/students', {
           headers: { Authorization: `Bearer ${token}` }
@@ -46,13 +49,20 @@ const FacultyDashboard = () => {
         })
       ]);
 
-      setStudents(studentsRes.data);
-      setRecommendations(recommendationsRes.data);
-      setCourses(coursesRes.data);
-      setMoodAnalytics(moodRes.data);
+      console.log('API Responses:', {
+        students: studentsRes.data,
+        recommendations: recommendationsRes.data,
+        courses: coursesRes.data,
+        mood: moodRes.data
+      });
+
+      setStudents(studentsRes.data.data || studentsRes.data);
+      setRecommendations(recommendationsRes.data.data || recommendationsRes.data);
+      setCourses(coursesRes.data.data || coursesRes.data);
+      setMoodAnalytics(moodRes.data.data || moodRes.data);
     } catch (error) {
-      setError('Failed to fetch data');
-      console.error('Error fetching data:', error);
+      console.error('Faculty Dashboard Error Details:', error.response?.data || error.message);
+      setError(`Failed to fetch data: ${error.response?.data?.message || error.message}`);
     } finally {
       setLoading(false);
     }
@@ -202,10 +212,11 @@ const FacultyDashboard = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {students.map(student => (
-                    <tr key={student.id}>
-                      <td>{student.first_name} {student.last_name}</td>
-                      <td>{student.email}</td>
+                  {Array.isArray(students) && students.length > 0 ? (
+                    students.map(student => (
+                      <tr key={student.id}>
+                        <td>{student.name}</td>
+                        <td>{student.email}</td>
                       <td>{student.course_name}</td>
                       <td>
                         <Badge variant={getMoodColor(student.recent_mood)}>
@@ -242,7 +253,14 @@ const FacultyDashboard = () => {
                         </Button>
                       </td>
                     </tr>
-                  ))}
+                  ))
+                  ) : (
+                    <tr>
+                      <td colSpan="6" className="text-center">
+                        {loading ? 'Loading students...' : 'No students found'}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </Table>
             </Card.Body>
@@ -268,10 +286,11 @@ const FacultyDashboard = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {recommendations.map(rec => (
-                    <tr key={rec.id}>
-                      <td>{rec.student_name}</td>
-                      <td>{rec.title}</td>
+                  {Array.isArray(recommendations) && recommendations.length > 0 ? (
+                    recommendations.map(rec => (
+                      <tr key={rec.id}>
+                        <td>{rec.student_name}</td>
+                        <td>{rec.title}</td>
                       <td>
                         <Badge variant={getTypeBadgeVariant(rec.type)}>
                           {rec.type.charAt(0).toUpperCase() + rec.type.slice(1)}
@@ -291,7 +310,14 @@ const FacultyDashboard = () => {
                       <td>{new Date(rec.created_at).toLocaleDateString()}</td>
                       <td>{rec.student_feedback || 'No response yet'}</td>
                     </tr>
-                  ))}
+                  ))
+                  ) : (
+                    <tr>
+                      <td colSpan="5" className="text-center">
+                        {loading ? 'Loading recommendations...' : 'No recommendations found'}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </Table>
             </Card.Body>
@@ -307,21 +333,20 @@ const FacultyDashboard = () => {
               <Table responsive hover>
                 <thead>
                   <tr>
-                    <th>Course Code</th>
-                    <th>Course Name</th>
-                    <th>Credits</th>
+                    <th>Course Title</th>
+                    <th>Section</th>
                     <th>Enrolled Students</th>
                     <th>Avg Mood</th>
                     <th>Wellness Alerts</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {courses.map(course => (
-                    <tr key={course.id}>
-                      <td>{course.course_code}</td>
-                      <td>{course.course_name}</td>
-                      <td>{course.credits}</td>
-                      <td>{course.enrolled_count}</td>
+                  {Array.isArray(courses) && courses.length > 0 ? (
+                    courses.map(course => (
+                      <tr key={course.id}>
+                        <td>{course.title}</td>
+                        <td>{course.section}</td>
+                        <td>{course.enrolled_count}</td>
                       <td>
                         <Badge variant={getMoodColor(course.avg_mood)}>
                           {course.avg_mood ? course.avg_mood.toFixed(1) : 'N/A'}
@@ -337,7 +362,14 @@ const FacultyDashboard = () => {
                         )}
                       </td>
                     </tr>
-                  ))}
+                  ))
+                  ) : (
+                    <tr>
+                      <td colSpan="5" className="text-center">
+                        {loading ? 'Loading courses...' : 'No courses found'}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </Table>
             </Card.Body>

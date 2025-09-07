@@ -514,6 +514,359 @@ const getAvailableTimeSlots = async (req, res) => {
   }
 };
 
+/**
+ * Get all appointments for admin with filtering (admin only)
+ */
+const getAllAppointments = async (req, res) => {
+  try {
+    const { status, consultant_id, student_id, date_from, date_to, page = 1, limit = 50 } = req.query;
+    
+    let whereConditions = [];
+    let queryParams = [];
+    let paramCount = 0;
+
+    // Build WHERE conditions
+    if (status && status !== 'all') {
+      paramCount++;
+      whereConditions.push(`a.status = $${paramCount}`);
+      queryParams.push(status);
+    }
+
+    if (consultant_id) {
+      paramCount++;
+      whereConditions.push(`a.consultant_id = $${paramCount}`);
+      queryParams.push(consultant_id);
+    }
+
+    if (student_id) {
+      paramCount++;
+      whereConditions.push(`a.student_id = $${paramCount}`);
+      queryParams.push(student_id);
+    }
+
+    if (date_from) {
+      paramCount++;
+      whereConditions.push(`a.appointment_date >= $${paramCount}`);
+      queryParams.push(date_from);
+    }
+
+    if (date_to) {
+      paramCount++;
+      whereConditions.push(`a.appointment_date <= $${paramCount}`);
+      queryParams.push(date_to);
+    }
+
+    const whereClause = whereConditions.length > 0 ? 'WHERE ' + whereConditions.join(' AND ') : '';
+
+    // Get total count
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM appointments a
+      ${whereClause}
+    `;
+    const countResult = await query(countQuery, queryParams);
+    const total = parseInt(countResult.rows[0].total);
+
+    // Calculate pagination
+    const offset = (page - 1) * limit;
+    paramCount++;
+    queryParams.push(limit);
+    paramCount++;
+    queryParams.push(offset);
+
+    // Get appointments with user details
+    const appointmentsQuery = `
+      SELECT 
+        a.id,
+        a.appointment_date,
+        a.appointment_time,
+        a.status,
+        a.student_notes,
+        a.consultant_notes,
+        a.requested_by,
+        a.created_at,
+        a.updated_at,
+        a.counter_proposal_date,
+        a.counter_proposal_time,
+        s.name as student_name,
+        s.username as student_username,
+        s.email as student_email,
+        s.student_id,
+        c.name as consultant_name,
+        c.username as consultant_username,
+        c.email as consultant_email
+      FROM appointments a
+      LEFT JOIN users s ON a.student_id = s.id
+      LEFT JOIN users c ON a.consultant_id = c.id
+      ${whereClause}
+      ORDER BY a.appointment_date DESC, a.appointment_time DESC
+      LIMIT $${paramCount - 1} OFFSET $${paramCount}
+    `;
+
+    const appointmentsResult = await query(appointmentsQuery, queryParams);
+
+    // Calculate pagination info
+    const totalPages = Math.ceil(total / limit);
+    const hasNextPage = page < totalPages;
+    const hasPrevPage = page > 1;
+
+    res.json({
+      success: true,
+      data: {
+        appointments: appointmentsResult.rows,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          totalPages,
+          hasNextPage,
+          hasPrevPage
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get appointments error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get appointments'
+    });
+  }
+};
+
+/**
+ * Create appointment (admin only)
+ */
+const createAppointmentAdmin = async (req, res) => {
+  try {
+    const { student_id, consultant_id, appointment_date, appointment_time, student_notes, requested_by } = req.body;
+
+    // Validate that student and consultant exist and have correct roles
+    const studentResult = await query(
+      'SELECT id, name FROM users WHERE id = $1 AND role = $2 AND is_active = true',
+      [student_id, 'student']
+    );
+
+    if (studentResult.rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid student selected'
+      });
+    }
+
+    const consultantResult = await query(
+      'SELECT id, name FROM users WHERE id = $1 AND role = $2 AND is_active = true',
+      [consultant_id, 'consultant']
+    );
+
+    if (consultantResult.rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid consultant selected'
+      });
+    }
+
+    // Check for conflicting appointments (same consultant, same date/time)
+    const conflictResult = await query(
+      `SELECT id FROM appointments 
+       WHERE consultant_id = $1 AND appointment_date = $2 AND appointment_time = $3 
+       AND status IN ('pending', 'confirmed')`,
+      [consultant_id, appointment_date, appointment_time]
+    );
+
+    if (conflictResult.rows.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: 'This time slot is already booked with the selected consultant'
+      });
+    }
+
+    // Create appointment
+    const appointmentResult = await query(
+      `INSERT INTO appointments 
+       (student_id, consultant_id, appointment_date, appointment_time, student_notes, requested_by, status)
+       VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+       RETURNING *`,
+      [student_id, consultant_id, appointment_date, appointment_time, student_notes || null, requested_by || 'admin']
+    );
+
+    res.status(201).json({
+      success: true,
+      message: 'Appointment created successfully',
+      data: { appointment: appointmentResult.rows[0] }
+    });
+  } catch (error) {
+    console.error('Create appointment error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create appointment'
+    });
+  }
+};
+
+/**
+ * Update appointment status (admin only)
+ */
+const updateAppointmentStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, consultant_notes, counter_proposal_date, counter_proposal_time } = req.body;
+
+    // Check if appointment exists
+    const appointmentResult = await query('SELECT * FROM appointments WHERE id = $1', [id]);
+    if (appointmentResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Appointment not found'
+      });
+    }
+
+    // Build update fields
+    let updateFields = ['status = $2', 'updated_at = CURRENT_TIMESTAMP'];
+    let updateParams = [id, status];
+    let paramCount = 2;
+
+    if (consultant_notes !== undefined) {
+      paramCount++;
+      updateFields.push(`consultant_notes = $${paramCount}`);
+      updateParams.push(consultant_notes);
+    }
+
+    if (counter_proposal_date !== undefined) {
+      paramCount++;
+      updateFields.push(`counter_proposal_date = $${paramCount}`);
+      updateParams.push(counter_proposal_date);
+    }
+
+    if (counter_proposal_time !== undefined) {
+      paramCount++;
+      updateFields.push(`counter_proposal_time = $${paramCount}`);
+      updateParams.push(counter_proposal_time);
+    }
+
+    // Update appointment
+    const updateQuery = `
+      UPDATE appointments 
+      SET ${updateFields.join(', ')}
+      WHERE id = $1
+      RETURNING *
+    `;
+
+    const updatedAppointment = await query(updateQuery, updateParams);
+
+    res.json({
+      success: true,
+      message: 'Appointment updated successfully',
+      data: { appointment: updatedAppointment.rows[0] }
+    });
+  } catch (error) {
+    console.error('Update appointment error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update appointment'
+    });
+  }
+};
+
+/**
+ * Delete appointment (admin only)
+ */
+const deleteAppointmentAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check if appointment exists
+    const appointmentResult = await query(
+      `SELECT a.*, s.name as student_name, c.name as consultant_name
+       FROM appointments a
+       LEFT JOIN users s ON a.student_id = s.id
+       LEFT JOIN users c ON a.consultant_id = c.id
+       WHERE a.id = $1`,
+      [id]
+    );
+
+    if (appointmentResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Appointment not found'
+      });
+    }
+
+    const appointment = appointmentResult.rows[0];
+
+    // Delete appointment
+    await query('DELETE FROM appointments WHERE id = $1', [id]);
+
+    res.json({
+      success: true,
+      message: `Appointment between ${appointment.student_name} and ${appointment.consultant_name} deleted successfully`
+    });
+  } catch (error) {
+    console.error('Delete appointment error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete appointment'
+    });
+  }
+};
+
+/**
+ * Get appointment statistics (admin only)
+ */
+const getAppointmentStats = async (req, res) => {
+  try {
+    // Get status distribution
+    const statusStatsResult = await query(`
+      SELECT 
+        status,
+        COUNT(*) as count
+      FROM appointments 
+      WHERE appointment_date >= CURRENT_DATE - INTERVAL '30 days'
+      GROUP BY status
+      ORDER BY count DESC
+    `);
+
+    // Get consultant performance
+    const consultantStatsResult = await query(`
+      SELECT 
+        c.name as consultant_name,
+        COUNT(*) as total_appointments,
+        COUNT(CASE WHEN a.status = 'completed' THEN 1 END) as completed_appointments,
+        COUNT(CASE WHEN a.status = 'pending' THEN 1 END) as pending_appointments
+      FROM appointments a
+      LEFT JOIN users c ON a.consultant_id = c.id
+      WHERE a.appointment_date >= CURRENT_DATE - INTERVAL '30 days'
+      GROUP BY c.id, c.name
+      ORDER BY total_appointments DESC
+    `);
+
+    // Get daily appointment counts for the last 7 days
+    const dailyStatsResult = await query(`
+      SELECT 
+        appointment_date::date as date,
+        COUNT(*) as count
+      FROM appointments 
+      WHERE appointment_date >= CURRENT_DATE - INTERVAL '7 days'
+      GROUP BY appointment_date::date
+      ORDER BY appointment_date::date
+    `);
+
+    res.json({
+      success: true,
+      data: {
+        statusStats: statusStatsResult.rows,
+        consultantStats: consultantStatsResult.rows,
+        dailyStats: dailyStatsResult.rows
+      }
+    });
+  } catch (error) {
+    console.error('Get appointment stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get appointment statistics'
+    });
+  }
+};
+
 module.exports = {
   createAppointment,
   scheduleAppointmentFromRecommendation,
@@ -521,5 +874,11 @@ module.exports = {
   getStudentAppointments,
   getConsultantAppointments,
   updateAppointment,
-  getAvailableTimeSlots
+  getAvailableTimeSlots,
+  // Admin functions
+  getAllAppointments,
+  createAppointmentAdmin,
+  updateAppointmentStatus,
+  deleteAppointmentAdmin,
+  getAppointmentStats
 };

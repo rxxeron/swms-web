@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const moodController = require('../controllers/moodController');
 const recommendationController = require('../controllers/recommendationController');
+const userController = require('../controllers/userController');
 const { authenticateToken } = require('../middleware/auth');
 const { requireFaculty } = require('../middleware/rbac');
 const { validateRecommendation, validateUuidParam } = require('../middleware/validation');
@@ -11,6 +12,12 @@ router.use(authenticateToken);
 
 // Apply faculty role requirement to all routes
 router.use(requireFaculty);
+
+// Faculty Dashboard API endpoints
+router.get('/students', userController.getFacultyStudents);
+router.get('/recommendations', recommendationController.getFacultyRecommendations);
+router.get('/courses', userController.getFacultyCourses);
+router.get('/mood-analytics', moodController.getFacultyMoodStats);
 
 // View mood statistics for faculty's sections
 router.get('/mood-stats', moodController.getFacultyMoodStats);

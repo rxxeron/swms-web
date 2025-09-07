@@ -290,10 +290,89 @@ const getRecommendationById = async (req, res) => {
   }
 };
 
+/**
+ * Get faculty's own recommendations
+ */
+const getFacultyRecommendations = async (req, res) => {
+  try {
+    const facultyId = req.user.id;
+    const { status, page = 1, limit = 10 } = req.query;
+    const offset = (page - 1) * limit;
+
+    let statusFilter = '';
+    let queryParams = [facultyId];
+    let paramCount = 1;
+
+    if (status) {
+      paramCount++;
+      statusFilter = 'AND r.status = $' + paramCount;
+      queryParams.push(status);
+    }
+
+    paramCount++;
+    queryParams.push(limit);
+    paramCount++;
+    queryParams.push(offset);
+
+    const recommendationsResult = await query(`
+      SELECT 
+        r.id, r.student_id, r.recommendation_type, r.reason, r.status, r.created_at,
+        s.name as student_name, s.student_id as student_number, s.email as student_email,
+        c.name as consultant_name, 
+        CASE 
+          WHEN r.status = 'pending' THEN 'Awaiting Assignment'
+          WHEN r.status = 'scheduled' THEN 'Consultation Scheduled'
+          WHEN r.status = 'completed' THEN 'Consultation Completed'
+          WHEN r.status = 'declined' THEN 'Student Declined'
+          ELSE r.status
+        END as status_description
+      FROM recommendations r
+      JOIN users s ON r.student_id = s.id
+      LEFT JOIN users c ON r.consultant_id = c.id
+      WHERE r.faculty_id = $1 ${statusFilter}
+      ORDER BY r.created_at DESC
+      LIMIT $${paramCount - 1} OFFSET $${paramCount}
+    `, queryParams);
+
+    // Get total count
+    const countParams = queryParams.slice(0, paramCount - 2);
+    const countResult = await query(`
+      SELECT COUNT(*) as total
+      FROM recommendations r
+      WHERE r.faculty_id = $1 ${statusFilter}
+    `, countParams);
+
+    const total = parseInt(countResult.rows[0].total);
+    const totalPages = Math.ceil(total / limit);
+
+    res.json({
+      success: true,
+      data: {
+        recommendations: recommendationsResult.rows,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages,
+          totalItems: total,
+          itemsPerPage: parseInt(limit),
+          hasNextPage: page < totalPages,
+          hasPrevPage: page > 1
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get faculty recommendations error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get faculty recommendations'
+    });
+  }
+};
+
 module.exports = {
   createRecommendation,
   getStudentRecommendations,
   getConsultantRecommendations,
   updateRecommendationStatus,
-  getRecommendationById
+  getRecommendationById,
+  getFacultyRecommendations
 };
